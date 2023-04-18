@@ -259,7 +259,7 @@ handle_info({'EXIT', Pid, _Reason}, State) ->
             case lists:member(Pid, State#state.workers) of
                 true ->
                     W = lists:filter(fun (P) -> P =/= Pid end, State#state.workers),
-		    NewWorker = new_worker(Sup),
+                    NewWorker = new_worker(Sup),
                     lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "available worker exits, new_worker overflow ~p", [?MODULE, ?FUNCTION_NAME, NewWorker, State#state.overflow]),
                     {noreply, State#state{workers = [NewWorker | W]}};
                 false ->
