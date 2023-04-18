@@ -26,6 +26,8 @@
 -define(GET_STACK(_), erlang:get_stacktrace()).
 -endif.
 
+-define(RESOURCE_QUEUE_REDESIGN_LOG_PREFIX, "Debug - resource queue re-design mod ~p fun ~p ").
+
 -type pool() ::
     Name :: (atom() | pid()) |
     {Name :: atom(), node()} |
@@ -234,10 +236,12 @@ handle_call(_Msg, _From, State) ->
 handle_info({'DOWN', MRef, _, _, _}, State) ->
     case ets:match(State#state.monitors, {'$1', '_', MRef}) of
         [[Pid]] ->
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "calling down, handle_checkin pid ~p overflow ~p", [?MODULE, ?FUNCTION_NAME, Pid, State#state.overflow]),
             true = ets:delete(State#state.monitors, Pid),
             NewState = handle_checkin(Pid, State),
             {noreply, NewState};
         [] ->
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "calling down, removed from waiting, overflow ~p", [?MODULE, ?FUNCTION_NAME, State#state.overflow]),
             Waiting = queue:filter(fun ({_, _, R}) -> R =/= MRef end, State#state.waiting),
             {noreply, State#state{waiting = Waiting}}
     end;
@@ -246,6 +250,7 @@ handle_info({'EXIT', Pid, _Reason}, State) ->
            monitors = Monitors} = State,
     case ets:lookup(Monitors, Pid) of
         [{Pid, _, MRef}] ->
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "working worker exits, delete pid ~p overflow ~p", [?MODULE, ?FUNCTION_NAME, Pid, State#state.overflow]),
             true = erlang:demonitor(MRef),
             true = ets:delete(Monitors, Pid),
             NewState = handle_worker_exit(Pid, State),
@@ -254,7 +259,9 @@ handle_info({'EXIT', Pid, _Reason}, State) ->
             case lists:member(Pid, State#state.workers) of
                 true ->
                     W = lists:filter(fun (P) -> P =/= Pid end, State#state.workers),
-                    {noreply, State#state{workers = [new_worker(Sup) | W]}};
+                    NewWorker = new_worker(Sup),
+                    lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "available worker exits, new_worker overflow ~p", [?MODULE, ?FUNCTION_NAME, NewWorker, State#state.overflow]),
+                    {noreply, State#state{workers = [NewWorker | W]}};
                 false ->
                     {noreply, State}
             end
@@ -313,10 +320,13 @@ handle_checkin(Pid, State) ->
         {{value, {From, CRef, MRef}}, Left} ->
             true = ets:insert(Monitors, {Pid, CRef, MRef}),
             gen_server:reply(From, Pid),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle waiting, pid ~p, overflow ~p", [?MODULE, ?FUNCTION_NAME, Pid, State#state.overflow]),
             State#state{waiting = Left};
         {empty, Empty} when Overflow > 0 ->
             ok = dismiss_worker(Sup, Pid),
-            State#state{waiting = Empty, overflow = Overflow - 1};
+            State1 = State#state{waiting = Empty, overflow = Overflow - 1},
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "no waiting, dismiss_worker pid ~p, overflow ~p", [?MODULE, ?FUNCTION_NAME, Pid, State1#state.overflow]),
+            State1;
         {empty, Empty} ->
             Workers = case Strategy of
                 lifo -> [Pid | State#state.workers];
@@ -334,13 +344,18 @@ handle_worker_exit(Pid, State) ->
             NewWorker = new_worker(State#state.supervisor),
             true = ets:insert(Monitors, {NewWorker, CRef, MRef}),
             gen_server:reply(From, NewWorker),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle waiting, new_worker pid ~p, overflow ~p", [?MODULE, ?FUNCTION_NAME, NewWorker, State#state.overflow]),
             State#state{waiting = LeftWaiting};
         {empty, Empty} when Overflow > 0 ->
-            State#state{overflow = Overflow - 1, waiting = Empty};
+            State1 = State#state{overflow = Overflow - 1, waiting = Empty},
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "no waiting, decrease overflow, overflow ~p", [?MODULE, ?FUNCTION_NAME, State1#state.overflow]),
+            State1;
         {empty, Empty} ->
+            NewWorker = new_worker(Sup),
             Workers =
-                [new_worker(Sup)
+                [NewWorker
                  | lists:filter(fun (P) -> P =/= Pid end, State#state.workers)],
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "no waiting, no overflow, new_worker pid ~p, overflow ~p", [?MODULE, ?FUNCTION_NAME, NewWorker, State#state.overflow]),
             State#state{workers = Workers, waiting = Empty}
     end.
 
