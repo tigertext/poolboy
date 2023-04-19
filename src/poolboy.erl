@@ -352,14 +352,14 @@ handle_worker_exit(Pid, State) ->
             State#state{waiting = LeftWaiting};
         {empty, Empty} when Overflow > 0 ->
             State1 = State#state{overflow = Overflow - 1, waiting = Empty},
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_worker_exit - no waiting, decrease overflow, overflow ~p, available worker count", [State1#state.overflow, length(State#state.workers)]),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_worker_exit - no waiting, decrease overflow, overflow ~p, available worker count ~p", [State1#state.overflow, length(State#state.workers)]),
             State1;
         {empty, Empty} ->
             NewWorker = new_worker(Sup),
             Workers =
                 [NewWorker
                  | lists:filter(fun (P) -> P =/= Pid end, State#state.workers)],
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_worker_exit - no waiting, no overflow, new_worker pid ~p, overflow ~p, available worker count", [NewWorker, State#state.overflow, length(State#state.workers)]),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_worker_exit - no waiting, no overflow, new_worker pid ~p, overflow ~p, available worker count ~p", [NewWorker, State#state.overflow, length(State#state.workers)]),
             State#state{workers = Workers, waiting = Empty}
     end.
 
