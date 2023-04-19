@@ -153,9 +153,8 @@ init([_ | Rest], WorkerArgs, State) ->
     init(Rest, WorkerArgs, State);
 init([], _WorkerArgs, #state{size = Size, supervisor = Sup} = State) ->
     Workers = prepopulate(Size, Sup),
-    State1 = State#state{workers = Workers},
-    lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "new_worker when init, length ~p, workers ~p", [length(State#state.workers), State#state.workers]),
-    {ok, State1}.
+    lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "new_worker when init, length ~p, workers ~p", [length(Workers), Workers]),
+    {ok, State#state{workers = Workers}}.
 
 handle_cast({checkin, Pid}, State = #state{monitors = Monitors}) ->
     case ets:lookup(Monitors, Pid) of
@@ -211,7 +210,7 @@ handle_call({checkout, CRef, Block}, {FromPid, _} = From, State) ->
         [] ->
             MRef = erlang:monitor(process, FromPid),
             Waiting = queue:in({From, CRef, MRef}, State#state.waiting),
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "checkout, no available worker, no overflow, overflow ~p", [State#state.overflow]),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "checkout, no available worker, no overflow, overflow ~p, waiting length ~p", [State#state.overflow, queue:len(Waiting)]),
             {noreply, State#state{waiting = Waiting}}
     end;
 
@@ -246,8 +245,8 @@ handle_info({'DOWN', MRef, _, _, _}, State) ->
             NewState = handle_checkin(Pid, State),
             {noreply, NewState};
         [] ->
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "waiting calling process down, overflow ~p", [State#state.overflow]),
             Waiting = queue:filter(fun ({_, _, R}) -> R =/= MRef end, State#state.waiting),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "waiting calling process down, overflow ~p, waiting length ~p", [State#state.overflow, queue:len(Waiting)]),
             {noreply, State#state{waiting = Waiting}}
     end;
 handle_info({'EXIT', Pid, _Reason}, State) ->
@@ -325,7 +324,7 @@ handle_checkin(Pid, State) ->
         {{value, {From, CRef, MRef}}, Left} ->
             true = ets:insert(Monitors, {Pid, CRef, MRef}),
             gen_server:reply(From, Pid),
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_check - handle waiting, pid ~p, overflow ~p, available worker count ~p", [Pid, State#state.overflow, length(State#state.workers)]),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_check - handle waiting, pid ~p, overflow ~p, available worker count ~p, waiting length ~p", [Pid, State#state.overflow, length(State#state.workers), queue:len(Left)]),
             State#state{waiting = Left};
         {empty, Empty} when Overflow > 0 ->
             ok = dismiss_worker(Sup, Pid),
@@ -349,7 +348,7 @@ handle_worker_exit(Pid, State) ->
             NewWorker = new_worker(State#state.supervisor),
             true = ets:insert(Monitors, {NewWorker, CRef, MRef}),
             gen_server:reply(From, NewWorker),
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_worker_exit - handle waiting, new_worker pid ~p, overflow ~p, available worker count ~p", [NewWorker, State#state.overflow, length(State#state.workers)]),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_worker_exit - handle waiting, new_worker pid ~p, overflow ~p, available worker count ~p, waiting length ~p", [NewWorker, State#state.overflow, length(State#state.workers), queue:len(LeftWaiting)]),
             State#state{waiting = LeftWaiting};
         {empty, Empty} when Overflow > 0 ->
             State1 = State#state{overflow = Overflow - 1, waiting = Empty},
