@@ -237,16 +237,17 @@ handle_call(_Msg, _From, State) ->
     Reply = {error, invalid_message},
     {reply, Reply, State}.
 
-handle_info({'DOWN', MRef, _, _, _}, State) ->
+handle_info({'DOWN', MRef, Type, Object, Info}, State) ->
     case ets:match(State#state.monitors, {'$1', '_', MRef}) of
         [[Pid]] ->
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handled calling process down, worker pid ~p, overflow ~p", [Pid, State#state.overflow]),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handled calling process down, worker pid ~p, overflow ~p, type ~p, object ~p, info ~p", [Pid, State#state.overflow, Type, Object, Info]),
             true = ets:delete(State#state.monitors, Pid),
             NewState = handle_checkin(Pid, State),
             {noreply, NewState};
         [] ->
             Waiting = queue:filter(fun ({_, _, R}) -> R =/= MRef end, State#state.waiting),
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "waiting calling process down, overflow ~p, waiting length ~p", [State#state.overflow, queue:len(Waiting)]),
+            Waiting =/= State#state.waiting andalso
+                lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "waiting calling process down, overflow ~p, waiting length ~p, type ~p, object ~p, info ~p", [State#state.overflow, queue:len(Waiting), Type, Object, Info]),
             {noreply, State#state{waiting = Waiting}}
     end;
 handle_info({'EXIT', Pid, _Reason}, State) ->
