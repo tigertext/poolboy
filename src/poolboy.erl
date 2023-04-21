@@ -66,6 +66,7 @@ checkout(Pool, Block, Timeout) ->
     catch
         ?EXCEPTION(Class, Reason, Stacktrace) ->
             gen_server:cast(Pool, {cancel_waiting, CRef}),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "to cancel_waiting, pool ~p, class ~p, reason ~p, stacktrace ~p", [Pool, Class, Reason, Stacktrace]),
             erlang:raise(Class, Reason, ?GET_STACK(Stacktrace))
     end.
 
@@ -170,6 +171,7 @@ handle_cast({checkin, Pid}, State = #state{monitors = Monitors}) ->
 handle_cast({cancel_waiting, CRef}, State) ->
     case ets:match(State#state.monitors, {'$1', CRef, '$2'}) of
         [[Pid, MRef]] ->
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "cancel_waiting, pid ~p, overflow ~p", [Pid, State#state.overflow]),
             demonitor(MRef, [flush]),
             true = ets:delete(State#state.monitors, Pid),
             NewState = handle_checkin(Pid, State),
@@ -182,6 +184,8 @@ handle_cast({cancel_waiting, CRef}, State) ->
                              true
                      end,
             Waiting = queue:filter(Cancel, State#state.waiting),
+            Waiting =/= State#state.waiting andalso
+                lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "cancel_waiting, waiting length ~p", [queue:len(Waiting)]),
             {noreply, State#state{waiting = Waiting}}
     end;
 
@@ -325,7 +329,7 @@ handle_checkin(Pid, State) ->
         {{value, {From, CRef, MRef}}, Left} ->
             true = ets:insert(Monitors, {Pid, CRef, MRef}),
             gen_server:reply(From, Pid),
-            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_check - handle waiting, pid ~p, overflow ~p, available worker count ~p, waiting length ~p", [Pid, State#state.overflow, length(State#state.workers), queue:len(Left)]),
+            lager:info(?RESOURCE_QUEUE_REDESIGN_LOG_PREFIX ++ "handle_checkin - handle waiting, pid ~p, overflow ~p, available worker count ~p, waiting length ~p", [Pid, State#state.overflow, length(State#state.workers), queue:len(Left)]),
             State#state{waiting = Left};
         {empty, Empty} when Overflow > 0 ->
             ok = dismiss_worker(Sup, Pid),
