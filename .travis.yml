@@ -16,4 +16,4 @@ otp_release:
 #  - R16B
 sudo: false
 script:
-  - ./rebar3 do get-deps, compile, dialyzer
+  - ./rebar3 do update, get-deps, compile, dialyzer
