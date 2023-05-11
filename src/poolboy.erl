@@ -406,4 +406,4 @@ get_md() ->
         catch _:_ ->
             {undefined, undefined, undefined}
         end,
-    [{pool, Pool}, {cluster, Cluster}, {node, Node}].
+    [{memorydb_pool, Pool}, {memorydb_cluster, Cluster}, {memorydb_node, Node}].
