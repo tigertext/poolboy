@@ -371,31 +371,3 @@ state_name(#state{overflow = MaxOverflow, max_overflow = MaxOverflow}) ->
     full;
 state_name(_State) ->
     overflow.
-
-get_pool_name() ->
-    get_pool_name(self()).
-
-get_pool_name(Pid) ->
-    try
-        {registered_name, RN} = process_info(Pid, registered_name),
-        RN
-    catch
-        _:_ ->
-            undefined
-    end.
-
-get_md() ->
-    {Pool, Node, Cluster} =
-        try
-            PoolName = get_pool_name(),
-            PoolNameList = atom_to_list(PoolName),
-            case string:tokens(PoolNameList, ".") of
-                [N, C | T] ->
-                    {PoolName, N, C};
-                _ ->
-                    {PoolName, undefined, undefined}
-            end
-        catch _:_ ->
-            {undefined, undefined, undefined}
-        end,
-    [{memorydb_pool, Pool}, {memorydb_cluster, Cluster}, {memorydb_node, Node}].
